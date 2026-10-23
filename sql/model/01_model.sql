@@ -103,3 +103,8 @@ JOIN analytics.dim_customers dc ON c.customer_unique_id = dc.customer_unique_id
 JOIN analytics.dim_products dp ON oi.product_id = dp.product_id
 WHERE o.order_purchase_timestamp IS NOT NULL
 ON CONFLICT (order_id, order_item_id) DO NOTHING;
+
+-- 5. Foreign Key Indexes on Fact Table
+CREATE INDEX IF NOT EXISTS idx_fact_order_items_customer_key ON analytics.fact_order_items(customer_key);
+CREATE INDEX IF NOT EXISTS idx_fact_order_items_product_key ON analytics.fact_order_items(product_key);
+CREATE INDEX IF NOT EXISTS idx_fact_order_items_date_key ON analytics.fact_order_items(date_key);
