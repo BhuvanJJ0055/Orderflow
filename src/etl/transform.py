@@ -1,4 +1,4 @@
-"""Data transformation module providing pure cleaning functions."""
+"""Data transformation module providing pure cleaning and filtering functions."""
 
 import pandas as pd
 
@@ -94,3 +94,25 @@ def clean_table(df: pd.DataFrame, table_name: str) -> tuple[pd.DataFrame, int]:
     if table_name not in dispatch_map:
         raise ValueError(f"No cleaning routine for table '{table_name}'")
     return dispatch_map[table_name](df)
+
+
+def filter_incremental_orders(
+    orders_df: pd.DataFrame,
+    watermark: pd.Timestamp | None = None,
+    existing_order_ids: set[str] | None = None,
+    cutoff: str | pd.Timestamp | None = None,
+) -> pd.DataFrame:
+    """Filter orders based on watermark boundary, existing IDs anti-join, and optional cutoff date."""
+    filtered_df = orders_df.copy()
+
+    if cutoff is not None:
+        cutoff_ts = pd.to_datetime(cutoff)
+        filtered_df = filtered_df[filtered_df["order_purchase_timestamp"] < cutoff_ts]
+
+    if watermark is not None:
+        watermark_ts = pd.to_datetime(watermark)
+        filtered_df = filtered_df[filtered_df["order_purchase_timestamp"] >= watermark_ts]
+        if existing_order_ids:
+            filtered_df = filtered_df[~filtered_df["order_id"].isin(existing_order_ids)]
+
+    return filtered_df
