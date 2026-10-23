@@ -14,7 +14,7 @@ import pandas as pd
 from sqlalchemy import text
 
 import src.etl.watermark as watermark_module
-from src.etl.config import BASE_DIR, LOGS_DIR, RAW_FILES
+from src.etl.config import BASE_DIR, LOGS_DIR
 from src.etl.extract import extract_table
 from src.etl.load import get_engine, load_table, record_run, save_rejects
 from src.etl.run_sql import execute_sql_file
@@ -94,21 +94,19 @@ def run_pipeline(
     total_loaded = 0
 
     try:
-        # 1. Extract raw data
-        raw_tables = {tbl: extract_table(tbl) for tbl in RAW_FILES}
-
-        # 2. Extract existing order ids if incremental
+        # 1. Determine existing orders for incremental anti-join
         existing_order_ids: set[str] = set()
         if mode == "incremental":
             with engine.connect() as conn:
                 existing_res = conn.execute(text("SELECT order_id FROM staging.orders;")).fetchall()
                 existing_order_ids = {r[0] for r in existing_res}
 
-        # 3. Clean and filter orders
-        raw_orders = raw_tables["orders"]
+        # 2. Extract, clean, and validate orders first to obtain boundary and allowed order IDs
+        raw_orders = extract_table("orders")
         clean_orders_df, orders_dups = clean_table(raw_orders, "orders")
+        orders_raw_len = len(raw_orders)
+        del raw_orders
 
-        # Apply cutoff / incremental watermark filtering to orders
         if mode == "incremental":
             orders_to_validate = filter_incremental_orders(
                 clean_orders_df,
@@ -126,37 +124,70 @@ def run_pipeline(
             orders_to_validate = clean_orders_df
 
         valid_orders, rejected_orders = apply_rules(orders_to_validate, "orders")
+        save_rejects(rejected_orders, "orders")
         allowed_order_ids = set(valid_orders["order_id"])
 
-        # 4. Clean, filter and validate other tables
-        processed_data: dict[str, tuple[pd.DataFrame, pd.DataFrame, int]] = {}
+        max_ts = None
+        if not valid_orders.empty:
+            candidate_ts = valid_orders["order_purchase_timestamp"].max()
+            if pd.notna(candidate_ts):
+                max_ts = candidate_ts.to_pydatetime()
 
-        for tbl, raw_df in raw_tables.items():
-            if tbl == "orders":
-                save_rejects(rejected_orders, "orders")
-                processed_data["orders"] = (valid_orders, rejected_orders, orders_dups)
-                continue
-
-            clean_df, dups = clean_table(raw_df, tbl)
-
-            # Filter items and payments to match allowed orders when cutoff or incremental
-            if (cutoff or mode == "incremental") and tbl in ["order_items", "payments"]:
-                clean_df = clean_df[clean_df["order_id"].isin(allowed_order_ids)].copy()
-
-            valid_df, rejected_df = apply_rules(clean_df, tbl)
-            save_rejects(rejected_df, tbl)
-            processed_data[tbl] = (valid_df, rejected_df, dups)
-
-        # 5. Atomic database load inside a single transaction
+        # 3. Atomic database load inside a single transaction
         with engine.begin() as conn:
-            for tbl in ["customers", "products", "orders", "order_items", "payments"]:
-                valid_df, rejected_df, dups = processed_data[tbl]
-                raw_in = len(raw_tables[tbl])
-                if mode == "incremental" and tbl in ["orders", "order_items", "payments"] or cutoff and tbl in ["orders", "order_items", "payments"]:
-                    raw_in = len(valid_df) + len(rejected_df) + dups
+            # Process orders first
+            orders_if_exists = "append" if mode == "incremental" else "replace"
+            orders_in = (
+                len(valid_orders) + len(rejected_orders) + orders_dups
+                if (mode == "incremental" or cutoff)
+                else orders_raw_len
+            )
+            orders_loaded = 0
+            if not valid_orders.empty or orders_if_exists == "replace":
+                orders_loaded = load_table(
+                    valid_orders,
+                    "orders",
+                    schema="staging",
+                    if_exists=orders_if_exists,
+                    connection_or_engine=conn,
+                )
+
+            summary["orders"] = {
+                "rows_in": orders_in,
+                "duplicates": orders_dups,
+                "rejected": len(rejected_orders),
+                "loaded": orders_loaded,
+            }
+            total_in += orders_in
+            total_rejected += len(rejected_orders)
+            total_loaded += orders_loaded
+
+            if fail_after and fail_after == "orders":
+                raise RuntimeError("ETL_FAIL_AFTER hook triggered after processing 'orders'")
+
+            del valid_orders, rejected_orders, clean_orders_df, orders_to_validate
+
+            # Process remaining tables sequentially
+            for tbl in ["customers", "products", "order_items", "payments"]:
+                raw_df = extract_table(tbl)
+                raw_len = len(raw_df)
+                clean_df, dups = clean_table(raw_df, tbl)
+                del raw_df
+
+                if (cutoff or mode == "incremental") and tbl in ["order_items", "payments"]:
+                    clean_df = clean_df[clean_df["order_id"].isin(allowed_order_ids)].copy()
+
+                valid_df, rejected_df = apply_rules(clean_df, tbl)
+                save_rejects(rejected_df, tbl)
+
+                tbl_in = (
+                    len(valid_df) + len(rejected_df) + dups
+                    if (mode == "incremental" and tbl in ["order_items", "payments"] or cutoff and tbl in ["order_items", "payments"])
+                    else raw_len
+                )
 
                 if_exists_strat = "replace"
-                if mode == "incremental" and tbl in ["orders", "order_items", "payments"]:
+                if mode == "incremental" and tbl in ["order_items", "payments"]:
                     if_exists_strat = "append"
 
                 loaded = 0
@@ -170,29 +201,39 @@ def run_pipeline(
                     )
 
                 summary[tbl] = {
-                    "rows_in": raw_in,
+                    "rows_in": tbl_in,
                     "duplicates": dups,
                     "rejected": len(rejected_df),
                     "loaded": loaded,
                 }
-                total_in += raw_in
+                total_in += tbl_in
                 total_rejected += len(rejected_df)
                 total_loaded += loaded
 
-                # Test-only failure hook
+                del clean_df, valid_df, rejected_df
+
                 if fail_after and fail_after == tbl:
                     raise RuntimeError(f"ETL_FAIL_AFTER hook triggered after processing '{tbl}'")
 
             # Update watermark in the same transaction
-            if not valid_orders.empty:
-                max_ts = valid_orders["order_purchase_timestamp"].max()
-                if pd.notna(max_ts):
-                    watermark_module.set_(conn, PIPELINE_NAME, max_ts.to_pydatetime())
-                    logger.info("Updated watermark to %s", max_ts)
+            if max_ts is not None:
+                watermark_module.set_(conn, PIPELINE_NAME, max_ts)
+                logger.info("Updated watermark to %s", max_ts)
 
-        # 6. Rebuild analytics star schema model if incremental succeeded
-        if mode == "incremental":
-            model_path = BASE_DIR / "sql" / "model" / "01_model.sql"
+        # 6. Rebuild analytics star schema model
+        model_path = BASE_DIR / "sql" / "model" / "01_model.sql"
+        if mode == "full":
+            with engine.begin() as conn:
+                conn.execute(text("""
+                    DO $$
+                    BEGIN
+                        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'analytics' AND table_name = 'fact_order_items') THEN
+                            TRUNCATE TABLE analytics.fact_order_items;
+                        END IF;
+                    END $$;
+                """))
+            execute_sql_file(model_path)
+        elif mode == "incremental":
             execute_sql_file(model_path)
 
         # 7. Record successful run audit

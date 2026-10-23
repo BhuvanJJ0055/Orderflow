@@ -6,6 +6,10 @@ from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
 
+# Restrict OpenBLAS and OMP thread allocation to prevent memory exhaustion
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+
 # Load environment variables from .env file at repo root
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 load_dotenv(BASE_DIR / ".env")
