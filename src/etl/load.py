@@ -1,12 +1,15 @@
-"""Database loading and rejection quarantine storage module."""
+"""Database loading, rejection quarantine storage, and run audit tracking."""
 
+import json
 import logging
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-from sqlalchemy import Engine, create_engine
+import psycopg2
+from sqlalchemy import Connection, Engine, create_engine, text
 
-from src.etl.config import DATABASE_URL, REJECTS_DIR
+from src.etl.config import DATABASE_URL, LOGS_DIR, REJECTS_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -22,14 +25,14 @@ def load_table(
     table_name: str,
     schema: str = "staging",
     if_exists: str = "replace",
-    engine: Engine | None = None,
+    connection_or_engine: Engine | Connection | None = None,
 ) -> int:
     """Load a DataFrame into PostgreSQL using multi-row insertion chunks."""
-    eng = engine or get_engine()
+    target = connection_or_engine or get_engine()
     df.to_sql(
         name=table_name,
         schema=schema,
-        con=eng,
+        con=target,
         if_exists=if_exists,
         index=False,
         chunksize=5000,
@@ -57,3 +60,55 @@ def save_rejects(
     if reject_path.exists():
         reject_path.unlink()
     return None
+
+
+def record_run(
+    pipeline: str,
+    mode: str,
+    started_at: datetime,
+    finished_at: datetime | None,
+    status: str,
+    rows_in: int,
+    rows_rejected: int,
+    rows_loaded: int,
+    error: str | None = None,
+    engine: Engine | None = None,
+) -> None:
+    """Record pipeline execution in ops.pipeline_runs or logs/failed_runs.jsonl if DB fails."""
+    insert_sql = text(
+        "INSERT INTO ops.pipeline_runs (pipeline, mode, started_at, finished_at, status, rows_in, rows_rejected, rows_loaded, error) "
+        "VALUES (:pipeline, :mode, :started_at, :finished_at, :status, :rows_in, :rows_rejected, :rows_loaded, :error);"
+    )
+    params = {
+        "pipeline": pipeline,
+        "mode": mode,
+        "started_at": started_at,
+        "finished_at": finished_at,
+        "status": status,
+        "rows_in": rows_in,
+        "rows_rejected": rows_rejected,
+        "rows_loaded": rows_loaded,
+        "error": error,
+    }
+
+    try:
+        eng = engine or get_engine()
+        with eng.begin() as conn:
+            conn.execute(insert_sql, params)
+    except (psycopg2.Error, OSError, Exception) as exc:  # noqa: BLE001
+        logger.warning("Could not write to ops.pipeline_runs (%s). Logging to failed_runs.jsonl", exc)
+        LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        fallback_file = LOGS_DIR / "failed_runs.jsonl"
+        log_payload = {
+            "pipeline": pipeline,
+            "mode": mode,
+            "started_at": started_at.isoformat(),
+            "finished_at": finished_at.isoformat() if finished_at else None,
+            "status": status,
+            "rows_in": rows_in,
+            "rows_rejected": rows_rejected,
+            "rows_loaded": rows_loaded,
+            "error": error or str(exc),
+        }
+        with open(fallback_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(log_payload) + "\n")
