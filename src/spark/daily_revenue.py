@@ -31,6 +31,11 @@ def get_db_credentials() -> dict[str, str]:
     }
 
 
+def get_jdbc_url(creds: dict[str, str]) -> str:
+    """Build JDBC connection URL from environment settings."""
+    return f"jdbc:postgresql://{creds['host']}:{creds['port']}/{creds['database']}"
+
+
 def ensure_target_table_exists(creds: dict[str, str]) -> None:
     """Ensure target table exists so truncate=true works idempotently."""
     db_url = f"postgresql+psycopg2://{creds['user']}:{creds['password']}@{creds['host']}:{creds['port']}/{creds['database']}"
@@ -54,7 +59,7 @@ def run_daily_revenue_job() -> int:
     creds = get_db_credentials()
     ensure_target_table_exists(creds)
 
-    jdbc_url = f"jdbc:postgresql://{creds['host']}:{creds['port']}/{creds['database']}"
+    jdbc_url = get_jdbc_url(creds)
 
     spark = (
         SparkSession.builder
