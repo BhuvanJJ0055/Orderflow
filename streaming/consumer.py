@@ -25,6 +25,23 @@ logging.basicConfig(
 logger = logging.getLogger("kafka_consumer")
 
 
+def is_valid_event(event: dict[str, Any]) -> tuple[bool, str]:
+    """Validate event schema and business constraints."""
+    required = ["event_id", "order_id", "product_id", "amount", "event_ts"]
+    for field in required:
+        if field not in event or event[field] is None:
+            return False, f"missing field '{field}'"
+
+    try:
+        amount = float(event["amount"])
+        if amount <= 0:
+            return False, f"amount {amount} <= 0"
+    except (ValueError, TypeError):
+        return False, f"unparseable amount '{event.get('amount')}'"
+
+    return True, "valid"
+
+
 def save_event_to_db(engine: Any, event: dict) -> bool:
     """Save order event to analytics.live_orders using ON CONFLICT DO NOTHING."""
     insert_sql = text(
@@ -97,6 +114,12 @@ def run_consumer(topic: str = "orders", max_messages: int | None = None) -> int:
             # Basic validation
             if not isinstance(data, dict):
                 logger.warning("Payload is not a JSON object, committing and skipping")
+                consumer.commit(msg)
+                continue
+
+            valid, reason = is_valid_event(data)
+            if not valid:
+                logger.warning(f"Invalid event ({reason}), committing offset and skipping: {data}")
                 consumer.commit(msg)
                 continue
 
