@@ -33,13 +33,22 @@ def get_raw_connection() -> psycopg2.extensions.connection:
 
 
 def execute_sql_file(file_path: str | Path, conn: psycopg2.extensions.connection | None = None) -> None:
-    """Execute a multi-statement SQL file in a single transaction.
+    """Execute a multi-statement SQL file or directory of SQL files in a single transaction.
 
     Rolls back and raises an exception on the first error.
     """
     path = Path(file_path)
     if not path.exists():
-        raise FileNotFoundError(f"SQL file not found: {path}")
+        raise FileNotFoundError(f"SQL file or directory not found: {path}")
+
+    if path.is_dir():
+        sql_files = sorted(path.glob("*.sql"))
+        if not sql_files:
+            logger.warning("No SQL files found in directory: %s", path)
+            return
+        for sql_file in sql_files:
+            execute_sql_file(sql_file, conn=conn)
+        return
 
     sql_text = path.read_text(encoding="utf-8")
     own_conn = conn is None
@@ -62,7 +71,7 @@ def execute_sql_file(file_path: str | Path, conn: psycopg2.extensions.connection
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="[%(asctime)s] [%(levelname)s]: %(message)s")
     if len(sys.argv) < 2:
-        print("Usage: python -m src.etl.run_sql <path/to/file.sql>", file=sys.stderr)
+        print("Usage: python -m src.etl.run_sql <path/to/file.sql|directory>", file=sys.stderr)
         sys.exit(1)
 
     target_sql = sys.argv[1]
