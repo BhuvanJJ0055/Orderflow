@@ -182,7 +182,7 @@ def run_pipeline(
 
                 tbl_in = (
                     len(valid_df) + len(rejected_df) + dups
-                    if (mode == "incremental" and tbl in ["order_items", "payments"] or cutoff and tbl in ["order_items", "payments"])
+                    if (mode == "incremental" and tbl in ["order_items", "payments"] or cutoff and tbl in ["order_items", "payments"])  # noqa: E501
                     else raw_len
                 )
 
@@ -227,7 +227,7 @@ def run_pipeline(
                 conn.execute(text("""
                     DO $$
                     BEGIN
-                        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'analytics' AND table_name = 'fact_order_items') THEN
+                        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'analytics' AND table_name = 'fact_order_items') THEN  -- noqa
                             TRUNCATE TABLE analytics.fact_order_items;
                         END IF;
                     END $$;

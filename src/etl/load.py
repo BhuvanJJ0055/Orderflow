@@ -76,7 +76,7 @@ def record_run(
 ) -> None:
     """Record pipeline execution in ops.pipeline_runs or logs/failed_runs.jsonl if DB fails."""
     insert_sql = text(
-        "INSERT INTO ops.pipeline_runs (pipeline, mode, started_at, finished_at, status, rows_in, rows_rejected, rows_loaded, error) "
+        "INSERT INTO ops.pipeline_runs (pipeline, mode, started_at, finished_at, status, rows_in, rows_rejected, rows_loaded, error) "  # noqa: E501
         "VALUES (:pipeline, :mode, :started_at, :finished_at, :status, :rows_in, :rows_rejected, :rows_loaded, :error);"
     )
     params = {
