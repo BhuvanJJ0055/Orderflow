@@ -1,6 +1,7 @@
 """Main ETL pipeline orchestrator supporting full and incremental modes."""
 
 import argparse
+import gc
 import json
 import logging
 import os
@@ -106,6 +107,7 @@ def run_pipeline(
         clean_orders_df, orders_dups = clean_table(raw_orders, "orders")
         orders_raw_len = len(raw_orders)
         del raw_orders
+        gc.collect()
 
         if mode == "incremental":
             orders_to_validate = filter_incremental_orders(
@@ -211,6 +213,7 @@ def run_pipeline(
                 total_loaded += loaded
 
                 del clean_df, valid_df, rejected_df
+                gc.collect()
 
                 if fail_after and fail_after == tbl:
                     raise RuntimeError(f"ETL_FAIL_AFTER hook triggered after processing '{tbl}'")

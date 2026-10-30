@@ -186,13 +186,13 @@ def main() -> int:
         failed_runs_file.unlink()
 
     # Stop postgres
-    run_cmd(["docker", "compose", "stop", "postgres"])
+    run_cmd(["docker", "stop", "ecom_postgres"])
     time.sleep(3)
 
     ret_down, _, _ = run_cmd([sys.executable, "-m", "src.etl.pipeline", "--mode", "incremental"])
 
     # Restart postgres
-    run_cmd(["docker", "compose", "start", "postgres"])
+    run_cmd(["docker", "start", "ecom_postgres"])
     # Wait for postgres to be healthy
     for _ in range(30):
         time.sleep(2)
