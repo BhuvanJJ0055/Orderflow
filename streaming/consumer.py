@@ -69,11 +69,12 @@ def run_consumer(topic: str = "orders", max_messages: int | None = None) -> int:
     """Run consumer loop, committing offsets only after successful DB writes."""
     group_id = os.getenv("KAFKA_GROUP", "live-orders-writer")
     bootstrap_servers = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+    auto_offset_reset = os.getenv("KAFKA_AUTO_OFFSET_RESET", "earliest")
 
     consumer = Consumer({
         "bootstrap.servers": bootstrap_servers,
         "group.id": group_id,
-        "auto.offset.reset": "earliest",
+        "auto.offset.reset": auto_offset_reset,
         "enable.auto.commit": False,
     })
 
