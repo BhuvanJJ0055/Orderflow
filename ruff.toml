@@ -11,3 +11,6 @@ select = ["E", "F", "W", "I", "UP", "B", "C4", "PLW"]
 "scripts/*" = [
     "E402",    # sys.path manipulation required before local imports in scripts
 ]
+"streaming/*" = [
+    "E402",    # sys.path manipulation required before local imports
+]

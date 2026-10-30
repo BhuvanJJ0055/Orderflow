@@ -49,3 +49,4 @@ logs/*
 .vscode/
 powershell.cmd
 hadoop/
+*.log

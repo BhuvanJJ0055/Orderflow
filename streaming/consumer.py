@@ -13,10 +13,13 @@ from dotenv import load_dotenv
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.etl.load import get_engine
-
 BASE_DIR = Path(__file__).resolve().parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
 load_dotenv(BASE_DIR / ".env")
+
+from src.etl.load import get_engine
 
 logging.basicConfig(
     level=logging.INFO,
