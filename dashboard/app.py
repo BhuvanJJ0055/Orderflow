@@ -3,8 +3,15 @@ Orderflow Analytics Dashboard
 Real-time e-commerce data pipeline monitoring and analytics.
 """
 
+import sys
 import time
 from datetime import datetime
+from pathlib import Path
+
+# ── Ensure repository root is on sys.path ─────────────────────────────────────
+BASE_DIR = Path(__file__).resolve().parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
 
 import pandas as pd
 import plotly.express as px
@@ -78,12 +85,12 @@ def run_query(sql: str, params: dict | None = None) -> pd.DataFrame:
         return pd.read_sql(text(sql), conn, params=params)
 
 
-def db_ok() -> bool:
+def db_ok() -> tuple[bool, str]:
     try:
         run_query("SELECT 1")
-        return True
-    except Exception:
-        return False
+        return True, ""
+    except Exception as e:
+        return False, str(e)
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -91,13 +98,16 @@ with st.sidebar:
     st.markdown("## 📦 Orderflow")
     st.markdown("---")
 
-    connected = db_ok()
+    connected, err_msg = db_ok()
     pill = (
         '<span class="pill-green">● Connected</span>'
         if connected
         else '<span class="pill-red">● Disconnected</span>'
     )
     st.markdown(f"**Database** {pill}", unsafe_allow_html=True)
+
+    if not connected and err_msg:
+        st.caption(f"Error: {err_msg}")
 
     st.markdown("---")
     refresh_interval = st.selectbox("Auto-refresh", [0, 10, 30, 60], index=0,
@@ -110,7 +120,7 @@ with st.sidebar:
     st.caption(f"Last updated: {datetime.now().strftime('%H:%M:%S')}")
 
 if not connected:
-    st.error("Cannot connect to PostgreSQL. Start the database with `docker compose up postgres` and try again.")
+    st.error(f"Cannot connect to PostgreSQL ({err_msg}). Start the database with `docker compose up -d postgres` and try again.")
     st.stop()
 
 # ── Auto-refresh ──────────────────────────────────────────────────────────────
@@ -218,7 +228,7 @@ st.markdown('<div class="section-header">Live Kafka Stream Monitor</div>', unsaf
 
 stream_sql = """
 SELECT
-    date_trunc('minute', consumed_at) AS minute,
+    date_trunc('minute', ingested_ts) AS minute,
     COUNT(*) AS events
 FROM analytics.live_orders
 GROUP BY 1
@@ -247,11 +257,11 @@ try:
         st.plotly_chart(fig_stream, use_container_width=True)
 
         recent_sql = """
-            SELECT event_id, order_id, customer_id, amount,
-                   to_char(event_time AT TIME ZONE 'UTC', 'HH24:MI:SS') AS event_time,
-                   to_char(consumed_at AT TIME ZONE 'UTC', 'HH24:MI:SS') AS consumed_at
+            SELECT event_id, order_id, product_id, amount,
+                   to_char(event_ts AT TIME ZONE 'UTC', 'HH24:MI:SS') AS event_ts,
+                   to_char(ingested_ts AT TIME ZONE 'UTC', 'HH24:MI:SS') AS ingested_ts
             FROM analytics.live_orders
-            ORDER BY consumed_at DESC LIMIT 20
+            ORDER BY ingested_ts DESC LIMIT 20
         """
         recent = run_query(recent_sql)
         st.dataframe(recent, use_container_width=True, hide_index=True)
@@ -290,7 +300,11 @@ try:
                 return "color: #ef4444"
             return "color: #fbbf24"
 
-        styled = runs_df.style.applymap(_color_status, subset=["status"])
+        styler = runs_df.style
+        if hasattr(styler, "map"):
+            styled = styler.map(_color_status, subset=["status"])
+        else:
+            styled = styler.applymap(_color_status, subset=["status"])
         st.dataframe(styled, use_container_width=True, hide_index=True)
 except Exception as e:
     st.warning(f"Pipeline runs query failed: {e}")

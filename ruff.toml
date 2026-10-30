@@ -7,6 +7,7 @@ select = ["E", "F", "W", "I", "UP", "B", "C4", "PLW"]
 "dashboard/app.py" = [
     "BLE001",  # broad Exception is intentional for graceful UI degradation
     "C408",    # dict() vs literal: Plotly accepts both; dict() is cleaner here
+    "E402",    # sys.path manipulation required before local imports
 ]
 "scripts/*" = [
     "E402",    # sys.path manipulation required before local imports in scripts
