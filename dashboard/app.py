@@ -140,15 +140,12 @@ st.markdown('<div class="section-header">Pipeline KPIs</div>', unsafe_allow_html
 
 kpi_sql = """
 SELECT
-    (SELECT COUNT(*) FROM analytics.fact_order_items)          AS total_orders,
-    (SELECT COUNT(DISTINCT customer_id)
-       FROM analytics.fact_order_items)                         AS unique_customers,
-    (SELECT COALESCE(SUM(revenue), 0)
-       FROM analytics.fact_order_items)                         AS total_revenue,
-    (SELECT COUNT(*)
-       FROM analytics.agg_daily_category_revenue)               AS spark_agg_rows,
-    (SELECT COUNT(*) FROM analytics.live_orders)                AS streamed_events,
-    (SELECT COUNT(*) FROM staging.orders)                       AS staging_rows
+    (SELECT COUNT(DISTINCT order_id) FROM analytics.fact_order_items)          AS total_orders,
+    (SELECT COUNT(DISTINCT customer_key) FROM analytics.fact_order_items)      AS unique_customers,
+    (SELECT COALESCE(SUM(price), 0) FROM analytics.fact_order_items)           AS total_revenue,
+    (SELECT COUNT(*) FROM analytics.agg_daily_category_revenue)                AS spark_agg_rows,
+    (SELECT COUNT(*) FROM analytics.live_orders)                               AS streamed_events,
+    (SELECT COUNT(*) FROM staging.orders)                                      AS staging_rows
 """
 
 try:
@@ -169,9 +166,9 @@ except Exception as e:
 st.markdown('<div class="section-header">Daily Revenue by Category</div>', unsafe_allow_html=True)
 
 rev_sql = """
-SELECT order_date, product_category, daily_revenue, unique_orders
+SELECT order_date, category, revenue, orders
 FROM analytics.agg_daily_category_revenue
-ORDER BY order_date, product_category
+ORDER BY order_date, category
 """
 try:
     rev_df = run_query(rev_sql)
@@ -181,12 +178,12 @@ try:
         rev_df["order_date"] = pd.to_datetime(rev_df["order_date"])
 
         # Category filter
-        all_cats = sorted(rev_df["product_category"].dropna().unique())
+        all_cats = sorted(rev_df["category"].dropna().unique())
         selected = st.multiselect("Filter categories", all_cats,
                                   default=all_cats[:6] if len(all_cats) >= 6 else all_cats)
-        filtered = rev_df[rev_df["product_category"].isin(selected)] if selected else rev_df
+        filtered = rev_df[rev_df["category"].isin(selected)] if selected else rev_df
 
-        daily_total = filtered.groupby("order_date")["daily_revenue"].sum().reset_index()
+        daily_total = filtered.groupby("order_date")["revenue"].sum().reset_index()
         daily_total.columns = ["order_date", "total_revenue"]
 
         fig_rev = px.area(
@@ -203,11 +200,11 @@ try:
         st.plotly_chart(fig_rev, use_container_width=True)
 
         # Top 10 categories bar
-        top_cat = rev_df.groupby("product_category")["daily_revenue"].sum().nlargest(10).reset_index()
+        top_cat = rev_df.groupby("category")["revenue"].sum().nlargest(10).reset_index()
         fig_cat = px.bar(
-            top_cat, x="daily_revenue", y="product_category", orientation="h",
+            top_cat, x="revenue", y="category", orientation="h",
             title="Top 10 Categories by Total Revenue",
-            color="daily_revenue", color_continuous_scale="Purples",
+            color="revenue", color_continuous_scale="Purples",
             template="plotly_dark",
         )
         fig_cat.update_layout(
@@ -276,11 +273,11 @@ st.markdown('<div class="section-header">ETL Pipeline Runs</div>', unsafe_allow_
 
 runs_sql = """
 SELECT
-    id,
-    run_mode,
+    run_id,
+    mode AS run_mode,
     status,
-    to_char(started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS started_at,
-    to_char(finished_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS finished_at,
+    to_char(started_at, 'YYYY-MM-DD HH24:MI:SS') AS started_at,
+    to_char(finished_at, 'YYYY-MM-DD HH24:MI:SS') AS finished_at,
     rows_in,
     rows_loaded,
     rows_rejected
