@@ -13,8 +13,8 @@
 | Phase 2 | SQL data modelling | `phase-2-model` | `v0.2-phase2` | Completed | Star schema built; 112,650 fact items; exact independent revenue reconciliation (R$ 13,591,643.70); indexes verified |
 | Phase 3 | Automation, tests, CI, Airflow | `phase-3-automation` | `v0.3-phase3` | Completed | Unit tests passed, incremental + rollback verified, Airflow NOT VERIFIED (Docker RAM constraint) |
 | Phase 4 | PySpark daily revenue | `phase-4-pyspark` | `v0.4-phase4` | Completed | 18,990 rows aggregated, exact revenue match R$ 13,591,643.70, median 37.25s |
-| Phase 5 | Kafka streaming | `phase-5-kafka` | `v0.5-phase5` | Not Started | |
-| Phase 6 | Docker, dashboard, polish | `phase-6-polish` | `v1.0.0` | Not Started | |
+| Phase 5 | Kafka streaming | `phase-5-kafka` | `v0.5-phase5` | Completed | KRaft broker; idempotent consumer; 0 duplicates on crash/resume; p99 latency < 200 ms |
+| Phase 6 | Docker, dashboard, polish | `phase-6-polish` | `v1.0.0` | Completed | Dockerfile + dashboard Dockerfile; Streamlit dashboard (5 sections); comprehensive README; stranger clone test 44/44 PASS |
 
 ## Measured Numbers (Phase 1, 2, 3 & 4)
 - `staging.orders`: 99,441 rows loaded

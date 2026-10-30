@@ -41,6 +41,41 @@ services:
     networks:
       - ecom_net
 
+  etl:
+    build: .
+    container_name: ecom_etl
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ecom_net
+    profiles:
+      - etl
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: dashboard/Dockerfile
+    container_name: ecom_dashboard
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+    ports:
+      - "8501:8501"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ecom_net
+    profiles:
+      - dashboard
+
 networks:
   ecom_net:
     name: ecom_net
